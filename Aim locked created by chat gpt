@@ -1,0 +1,238 @@
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- SETTINGS
+local Settings = {
+    Enabled = false,
+    FOV = 140,
+    Smoothness = 0.2,
+    Prediction = 0.1,
+    Rainbow = true
+}
+
+local currentTarget = nil
+local highlight = nil
+
+-- UI ROOT
+local gui = Instance.new("ScreenGui", LocalPlayer:WaitForChild("PlayerGui"))
+gui.Name = "Rayfield"  -- Menu is officially named Rayfield
+
+-- 🔴 FOV Circle
+local fovCircle = Instance.new("Frame")
+fovCircle.Size = UDim2.new(0, Settings.FOV*2, 0, Settings.FOV*2)
+fovCircle.Position = UDim2.new(0.5,0,0.5,0)
+fovCircle.AnchorPoint = Vector2.new(0.5,0.5)
+fovCircle.BackgroundTransparency = 1
+fovCircle.BorderSizePixel = 2
+fovCircle.BorderColor3 = Color3.fromRGB(255,0,0)
+fovCircle.Parent = gui
+
+-- 📱 Mobile Lock Button
+local lockBtn = Instance.new("TextButton")
+lockBtn.Size = UDim2.new(0,120,0,50)
+lockBtn.Position = UDim2.new(1,-140,1,-80)
+lockBtn.Text = "LOCK"
+lockBtn.BackgroundColor3 = Color3.fromRGB(25,25,25)
+lockBtn.TextColor3 = Color3.new(1,1,1)
+lockBtn.Parent = gui
+
+-- 🧰 Rayfield-style menu frame
+local menu = Instance.new("Frame")
+menu.Size = UDim2.new(0,220,0,260)
+menu.Position = UDim2.new(0,20,0,100)
+menu.BackgroundColor3 = Color3.fromRGB(25,25,25)
+menu.Parent = gui
+
+-- Menu Title
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1,0,0,30)
+title.Position = UDim2.new(0,0,0,0)
+title.BackgroundTransparency = 1
+title.Text = "Rayfield"
+title.TextColor3 = Color3.new(1,1,1)
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 20
+title.Parent = menu
+
+-- MENU FUNCTIONS
+local function makeToggle(name,posY,callback)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1,0,0,30)
+    btn.Position = UDim2.new(0,0,0,posY)
+    btn.Text = name
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    btn.Parent = menu
+    btn.MouseButton1Click:Connect(callback)
+end
+
+local function makeSlider(name,posY,min,max,initial,callback)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1,0,0,20)
+    label.Position = UDim2.new(0,0,0,posY)
+    label.Text = name.." : "..initial
+    label.TextColor3 = Color3.new(1,1,1)
+    label.BackgroundTransparency = 1
+    label.Parent = menu
+
+    local slider = Instance.new("Frame")
+    slider.Size = UDim2.new(1,0,0,20)
+    slider.Position = UDim2.new(0,0,0,posY+20)
+    slider.BackgroundColor3 = Color3.fromRGB(60,60,60)
+    slider.Parent = menu
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((initial-min)/(max-min),0,1,0)
+    fill.BackgroundColor3 = Color3.fromRGB(200,200,200)
+    fill.Parent = slider
+
+    slider.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local function move(input2)
+                local pos = math.clamp((input2.Position.X - slider.AbsolutePosition.X)/slider.AbsoluteSize.X,0,1)
+                fill.Size = UDim2.new(pos,0,1,0)
+                local value = min + pos*(max-min)
+                label.Text = name.." : "..string.format("%.2f", value)
+                callback(value)
+            end
+            move(input)
+            local conn
+            conn = UserInputService.InputChanged:Connect(function(i)
+                if i.UserInputType == input.UserInputType then
+                    move(i)
+                end
+            end)
+            UserInputService.InputEnded:Connect(function(i)
+                if i.UserInputType == input.UserInputType then
+                    conn:Disconnect()
+                end
+            end)
+        end
+    end)
+end
+
+-- MENU ELEMENTS
+makeToggle("Toggle Lock",50,function()
+    Settings.Enabled = not Settings.Enabled
+end)
+
+makeToggle("Rainbow Highlight",100,function()
+    Settings.Rainbow = not Settings.Rainbow
+end)
+
+makeSlider("FOV",150,60,300,Settings.FOV,function(val)
+    Settings.FOV = val
+end)
+
+makeSlider("Smoothness",200,0,1,Settings.Smoothness,function(val)
+    Settings.Smoothness = val
+end)
+
+makeSlider("Prediction",250,0,1,Settings.Prediction,function(val)
+    Settings.Prediction = val
+end)
+
+-- AIM LOCK SYSTEM
+local function isValidTarget(player)
+    if player == LocalPlayer then return false end
+    if not player.Character then return false end
+    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    if player.Team == LocalPlayer.Team then return false end
+    return true
+end
+
+local function getClosestTarget()
+    local closest = nil
+    local shortest = Settings.FOV
+    local center = Vector2.new(Camera.ViewportSize.X/2,Camera.ViewportSize.Y/2)
+    for _,player in pairs(Players:GetPlayers()) do
+        if isValidTarget(player) then
+            local pos,onScreen = Camera:WorldToViewportPoint(player.Character.HumanoidRootPart.Position)
+            if onScreen then
+                local dist = (Vector2.new(pos.X,pos.Y)-center).Magnitude
+                if dist < shortest then
+                    shortest = dist
+                    closest = player
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function applyHighlight(target)
+    if highlight then highlight:Destroy() end
+    highlight = Instance.new("Highlight")
+    highlight.Parent = target.Character
+
+    RunService.RenderStepped:Connect(function()
+        if highlight and Settings.Rainbow then
+            local hue = tick()%5/5
+            highlight.FillColor = Color3.fromHSV(hue,1,1)
+            highlight.OutlineColor = Color3.fromHSV(hue,1,1)
+        else
+            highlight.FillColor = Color3.fromRGB(255,0,0)
+        end
+    end)
+end
+
+-- BUTTON + KEY TOGGLE
+lockBtn.MouseButton1Click:Connect(function()
+    Settings.Enabled = not Settings.Enabled
+end)
+
+UserInputService.InputBegan:Connect(function(input,processed)
+    if processed then return end
+    if input.KeyCode == Enum.KeyCode.Q then
+        Settings.Enabled = not Settings.Enabled
+    end
+end)
+
+-- MAIN LOOP
+RunService.RenderStepped:Connect(function()
+    fovCircle.Size = UDim2.new(0,Settings.FOV*2,0,Settings.FOV*2)
+    if Settings.Enabled then
+        currentTarget = getClosestTarget()
+        if currentTarget and currentTarget.Character then
+            local hrp = currentTarget.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                if not highlight then
+                    applyHighlight(currentTarget)
+                end
+                local predicted = hrp.Position + (hrp.Velocity * Settings.Prediction)
+                local targetCF = CFrame.new(Camera.CFrame.Position,predicted)
+                Camera.CFrame = Camera.CFrame:Lerp(targetCF,Settings.Smoothness)
+            end
+        end
+    end
+end)
+
+-- RESPAWN HANDLING (PERSIST LOCK)
+local keepLock = Settings.Enabled
+local function onCharacterAdded(character)
+    local humanoid = character:WaitForChild("Humanoid")
+    humanoid.Died:Connect(function()
+        keepLock = Settings.Enabled
+        currentTarget = nil
+        if highlight then
+            highlight:Destroy()
+            highlight = nil
+        end
+    end)
+    character:WaitForChild("HumanoidRootPart")
+    if keepLock then
+        Settings.Enabled = true
+    end
+end
+
+if LocalPlayer.Character then
+    onCharacterAdded(LocalPlayer.Character)
+end
+
+LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
