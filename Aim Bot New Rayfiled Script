@@ -1,0 +1,125 @@
+-- LOAD RAYFIELD
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Aim Bot System",
+   LoadingTitle = "Loading...",
+   LoadingSubtitle = "Rayfield",
+   ConfigurationSaving = { Enabled = false }
+})
+
+local MainTab = Window:CreateTab("Main", nil)
+local VisualTab = Window:CreateTab("Visuals", nil)
+
+-- SERVICES
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- Changing FOV size here (Recommand 100-150)
+local FOV_Size = 150
+
+local FOV_Circle = Drawing.new("Circle")
+FOV_Circle.Color = Color3.fromRGB(75, 0, 130)
+FOV_Circle.Thickness = 1
+FOV_Circle.Filled = false
+FOV_Circle.Radius = FOV_Size
+FOV_Circle.Visible = false
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = LocalPlayer.PlayerGui
+screenGui.Name = "AimUI"
+screenGui.ResetOnSpawn = false
+
+local button = Instance.new("TextButton")
+button.Parent = screenGui
+button.Size = UDim2.new(0, 200, 0, 50)
+button.Position = UDim2.new(0, 10, 0, 10)
+button.BackgroundColor3 = Color3.fromRGB(0, 0, 0) 
+button.TextColor3 = Color3.fromRGB(75, 0, 130) 
+button.Text = "Click to Aim"
+button.AnchorPoint = Vector2.new(0, 0)
+button.Selectable = false
+button.Visible = true
+
+local isAimingEnabled = false -- Aim FOV status true/false (Don't touch this)
+
+local function UpdateFOV()
+    local ScreenSize = Camera.ViewportSize
+    local CenterPosition = Vector2.new(ScreenSize.X / 2, ScreenSize.Y / 2)
+    FOV_Circle.Position = CenterPosition
+    FOV_Circle.Radius = FOV_Size
+end
+
+-- This function won't work on most Executer
+local function GetNearestTarget()
+    local ClosestPlayer = nil
+    local ShortestDistance = FOV_Size
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+            local Head = player.Character.Head
+            local HeadPosition, OnScreen = Camera:WorldToViewportPoint(Head.Position)
+
+            if OnScreen then
+                local CenterPosition = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                local Distance = (Vector2.new(HeadPosition.X, HeadPosition.Y) - CenterPosition).Magnitude
+
+                if Distance < ShortestDistance then
+                    ClosestPlayer = player
+                    ShortestDistance = Distance
+                end
+            end
+        end
+    end
+
+    return ClosestPlayer
+end
+
+local function AimAtTarget()
+    local Target = GetNearestTarget()
+    if Target and Target.Character and Target.Character:FindFirstChild("Head") then
+        local Head = Target.Character.Head
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position, Head.Position)
+    end
+end
+
+local function ToggleAim()
+    isAimingEnabled = not isAimingEnabled
+    if isAimingEnabled then
+        button.Text = "Click to Stop"
+        FOV_Circle.Visible = true
+    else 
+        button.Text = "Click to Aim"
+        FOV_Circle.Visible = false
+    end
+end
+
+button.MouseButton1Click:Connect(ToggleAim)
+
+-- Set Keybind here (Default set "F")
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.F then
+        ToggleAim()
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    UpdateFOV()
+    if isAimingEnabled then
+        AimAtTarget()
+    end
+end)
+
+Players.PlayerAdded:Connect(function(player)
+    if player == LocalPlayer then
+        local respawnedScreenGui = player.PlayerGui:FindFirstChild("AimUI")
+        if respawnedScreenGui then
+            respawnedScreenGui.ResetOnSpawn = false
+        end
+    end
+end)
